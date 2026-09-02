@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "modelId": "rb22-suspension-candidate-rig",
+  "sourceProposal": "work/model-pipeline/rb22-suspension-link-proposal.json",
+  "sourceObject": "Object_63",
+  "centerlineWebZ": -0.116887,
+  "review": {
+    "status": "geometry-confirmed-role-pending",
+    "method": "Four-view isolated render review plus left-right mirror comparison",
+    "maximumAcceptedMirrorDeviationM": 0.025,
+    "views": [
+      "oblique",
+      "outboard",
+      "top",
+      "longitudinal"
+    ]
+  },
+  "confirmedGeometryPairs": [
+    {
+      "axle": "front",
+      "leftCluster": "suspension-link-candidate-06",
+      "rightCluster": "suspension-link-candidate-21",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "front",
+      "leftCluster": "suspension-link-candidate-09",
+      "rightCluster": "suspension-link-candidate-24",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "front",
+      "leftCluster": "suspension-link-candidate-13",
+      "rightCluster": "suspension-link-candidate-28",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "front",
+      "leftCluster": "suspension-link-candidate-15",
+      "rightCluster": "suspension-link-candidate-30",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "rear",
+      "leftCluster": "suspension-link-candidate-32",
+      "rightCluster": "suspension-link-candidate-47",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "rear",
+      "leftCluster": "suspension-link-candidate-34",
+      "rightCluster": "suspension-link-candidate-48",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "rear",
+      "leftCluster": "suspension-link-candidate-35",
+      "rightCluster": "suspension-link-candidate-49",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "rear",
+      "leftCluster": "suspension-link-candidate-37",
+      "rightCluster": "suspension-link-candidate-51",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "rear",
+      "leftCluster": "suspension-link-candidate-39",
+      "rightCluster": "suspension-link-candidate-53",
+      "role": "transverse-link"
+    },
+    {
+      "axle": "rear",
+      "leftCluster": "suspension-link-candidate-42",
+      "rightCluster": "suspension-link-candidate-56",
+      "role": "transverse-link"
+    }
+  ],
+  "excludedFromLinkRig": [
+    "suspension-link-candidate-01",
+    "suspension-link-candidate-02",
+    "suspension-link-candidate-03",
+    "suspension-link-candidate-04",
+    "suspension-link-candidate-05",
+    "suspension-link-candidate-07",
+    "suspension-link-candidate-08",
+    "suspension-link-candidate-10",
+    "suspension-link-candidate-11",
+    "suspension-link-candidate-12",
+    "suspension-link-candidate-14",
+    "suspension-link-candidate-16",
+    "suspension-link-candidate-17",
+    "suspension-link-candidate-18",
+    "suspension-link-candidate-19",
+    "suspension-link-candidate-20",
+    "suspension-link-candidate-22",
+    "suspension-link-candidate-23",
+    "suspension-link-candidate-25",
+    "suspension-link-candidate-26",
+    "suspension-link-candidate-27",
+    "suspension-link-candidate-29",
+    "suspension-link-candidate-31",
+    "suspension-link-candidate-33",
+    "suspension-link-candidate-36",
+    "suspension-link-candidate-38",
+    "suspension-link-candidate-40",
+    "suspension-link-candidate-41",
+    "suspension-link-candidate-43",
+    "suspension-link-candidate-44",
+    "suspension-link-candidate-45",
+    "suspension-link-candidate-46",
+    "suspension-link-candidate-50",
+    "suspension-link-candidate-52",
+    "suspension-link-candidate-54",
+    "suspension-link-candidate-55",
+    "suspension-link-candidate-57",
+    "suspension-link-candidate-58",
+    "suspension-link-candidate-59",
+    "suspension-link-candidate-60"
+  ],
+  "rideHeightReady": false
+}

@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "modelId": "rb22",
+  "source": "public/models/rb22.glb",
+  "coordinateSystem": {
+    "forward": "-X",
+    "up": "+Y",
+    "span": "+Z"
+  },
+  "components": [
+    {
+      "id": "front-wing-mainplane",
+      "control": "frontWingAngleDeg",
+      "parts": [
+        "part-0001"
+      ],
+      "hingeAxis": "+Z",
+      "pivotWeb": [-3.0, 0.2, -0.116887]
+    },
+    {
+      "id": "front-wing-flap",
+      "control": "frontFlapPercent",
+      "parts": [
+        "part-0007",
+        "part-0012",
+        "part-0027",
+        "part-0032"
+      ],
+      "hingeAxis": "+Z",
+      "pivotWeb": [-2.75, 0.27, -0.116887]
+    },
+    {
+      "id": "rear-wing-mainplane",
+      "control": "rearWingLoadPercent",
+      "parts": [
+        "part-6645",
+        "part-7211"
+      ],
+      "hingeAxis": "+Z",
+      "pivotWeb": [2.475376, 0.942274, -0.116887]
+    },
+    {
+      "id": "rear-wing-flap",
+      "control": "activeAeroMode/drsOpen",
+      "parts": [
+        "part-7261"
+      ],
+      "hingeAxis": "+Z",
+      "pivotWeb": [2.703144, 0.960618, -0.116887]
+    }
+  ]
+}

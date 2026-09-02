@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "modelId": "rb22-sprung-candidate",
+  "rideHeightReady": false,
+  "sprungSourceObjects": [
+    "Object_9",
+    "Object_15",
+    "Object_35",
+    "Object_38",
+    "Object_42",
+    "Object_45",
+    "Object_48",
+    "Object_52",
+    "Object_56",
+    "Object_66",
+    "Object_83",
+    "Object_91",
+    "Object_94",
+    "Object_121",
+    "Object_127",
+    "Object_145",
+    "Object_148",
+    "Object_211",
+    "Object_328",
+    "Object_331",
+    "Object_334",
+    "Object_337",
+    "Object_343",
+    "Object_346",
+    "Object_349",
+    "Object_585"
+  ],
+  "unclassifiedSourceObjects": [
+    "Object_63"
+  ],
+  "blockers": [
+    "Object_63 mixes the floor, body details and four-corner suspension parts"
+  ]
+}

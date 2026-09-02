@@ -1,0 +1,7 @@
+node_modules/
+dist/
+work/
+.cache/
+.tools/
+__pycache__/
+*.log
