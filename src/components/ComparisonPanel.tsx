@@ -23,7 +23,7 @@ export const ComparisonPanel = ({ activeCar, baselineCar, active, baseline }: Co
     <section className="comparison-panel" aria-labelledby="comparison-title">
       <div className="comparison-panel__header">
         <div>
-          <div className="eyebrow">差值视图 / 使用相同设置</div>
+          <div className="eyebrow">差值视图 / 同工况对比</div>
           <h2 id="comparison-title">赛车概念对比</h2>
         </div>
         <span className="comparison-chip">仅供相对比较</span>
@@ -54,7 +54,7 @@ export const ComparisonPanel = ({ activeCar, baselineCar, active, baseline }: Co
         })}
       </div>
       <p className="comparison-footnote">
-        所有对比均复用当前运行条件、车库设置与底板设计；仅赛车概念及其趋势标定系数不同。
+        风速、车库设置与底板设计保持一致；当前车与基准车分别采用各自整备质量，用于比较完整赛车概念趋势。
       </p>
     </section>
   )

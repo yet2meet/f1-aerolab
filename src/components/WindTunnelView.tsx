@@ -561,6 +561,8 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
     } catch {
       setWebglError(true)
+      setReferenceLoadState('fallback')
+      setReferenceRigStatus('static')
       return undefined
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -1004,8 +1006,10 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
           <span>底板载荷 <b>{result.floorLoadFactor.toFixed(2)}×</b></span>
           <span>前/后离地高度 <b>{params.garage.frontRideHeightMm}/{params.garage.rearRideHeightMm} mm</b></span>
           <span>阻力 <b>{Math.round(result.totalDragN).toLocaleString('zh-CN')} N</b></span>
-          {modelMode === 'reference'
+          {modelMode === 'reference' && referenceIsAdjustable
             ? <span className={windDeltaMm > 0 ? 'is-delta' : ''}>采样路径偏移 <b>{windDeltaMm > 0 ? `${windDeltaMm.toFixed(1)} mm` : '—'}</b></span>
+            : modelMode === 'reference'
+              ? <span>参考风场 <b>静态</b></span>
             : <span>部件响应 <b>分析趋势</b></span>}
         </div>
       </div>
@@ -1013,7 +1017,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
         <div className="legend"><span className="legend-line legend-line--cyan" /> 上部气流</div>
         <div className="legend"><span className="legend-line legend-line--lime" /> 底板高速气流</div>
         <div className="legend"><span className="legend-line legend-line--orange" /> 尾流</div>
-        {modelMode === 'reference' && (
+        {modelMode === 'reference' && referenceIsAdjustable && (
           <div className="legend"><span className="legend-line legend-line--delta" /> 调整影响 / {windDeltaLabel}</div>
         )}
         <div className="tunnel-card__footer-note">
@@ -1022,8 +1026,10 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
               ? `${windLayerCount} 层烟流 + ${windTracerCount} 条示踪路径 · 授权参考模型 · 前后翼可调`
               : '授权参考模型 · 静态几何 · 部件调整请使用分析模型'
             : '参数化分析模型 · 独立空气动力表面'}
-          {modelMode === 'reference'
+          {modelMode === 'reference' && referenceIsAdjustable
             ? ' · 差值趋势 · 显示放大×3 · 非 CFD'
+            : modelMode === 'reference'
+              ? ' · 静态参考风场 · 非 CFD'
             : ' · 趋势视图 · 非 CFD'}
         </div>
         <div className="model-credit">

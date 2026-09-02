@@ -271,32 +271,39 @@ input[type='range']:focus-visible { outline: 2px solid var(--cyan); outline-offs
   .tunnel-card__footer { gap: 11px; padding: 8px 15px 9px; }
   .legend { font-size: 8px; }
   .tunnel-card__footer-note { font-size: 8px; }
-  .model-credit { padding-top: 6px; font-size: 7px; line-height: 1.25; }
+  .model-credit { padding-top: 6px; font-size: 8px; line-height: 1.25; }
   .metrics-panel, .comparison-panel { min-height: 0; height: 194px; }
   .metrics-panel { padding: 9px 10px; overflow: hidden; }
   .metrics-panel > .section-heading { margin-bottom: 6px; }
   .metrics-panel h2, .comparison-panel h2 { margin-top: 3px; font-size: 17px; }
-  .metric-status, .comparison-chip { padding: 4px 6px; font-size: 7px; }
+  .metric-status, .comparison-chip { padding: 4px 6px; font-size: 8px; }
   .metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
   .metric-card { padding: 6px 7px; }
-  .metric-label { font-size: 7px; letter-spacing: 0.03em; }
+  .metric-label { font-size: 8px; letter-spacing: 0.03em; }
   .metric-card strong { margin: 6px 0 4px; font-size: clamp(13px, 1.5vw, 19px); }
-  .metric-meta { font-size: 7px; }
+  .metric-meta { font-size: 8px; }
   .load-split { margin-top: 6px; padding-top: 5px; }
-  .load-split__header, .load-split__values { font-size: 7px; }
+  .load-split__header, .load-split__values { font-size: 8px; }
   .load-bar { height: 4px; margin: 4px 0 3px; }
   .signal-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 6px; }
   .signal { display: block; padding: 4px 5px; }
-  .signal span, .signal b { display: block; font-size: 7px; overflow: hidden; text-overflow: ellipsis; }
-  .signal b { margin-top: 3px; font-size: 8px; }
+  .signal span, .signal b { display: block; font-size: 8px; overflow: hidden; text-overflow: ellipsis; }
+  .signal b { margin-top: 3px; font-size: 9px; }
   .comparison-panel__header { padding: 9px 10px 7px; }
   .comparison-panel .eyebrow { display: none; }
   .comparison-panel h2 { margin: 0; font-size: 15px; white-space: nowrap; }
   .comparison-table { padding: 0 10px; }
-  .comparison-row { min-height: 20px; gap: 5px; font-size: 7px; }
-  .comparison-row--head { min-height: 17px; font-size: 6px; }
-  .comparison-footnote { padding: 4px 10px; font-size: 6px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .app-footer { align-items: center; padding: 0 clamp(16px, 2.4vw, 38px); font-size: 7px; }
+  .comparison-row { min-height: 20px; gap: 5px; font-size: 8px; }
+  .comparison-row--head { min-height: 17px; font-size: 7px; }
+  .comparison-footnote { padding: 4px 10px; font-size: 7px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-footer { align-items: center; padding: 0 clamp(16px, 2.4vw, 38px); font-size: 8px; }
+}
+
+@media (max-width: 380px) {
+  .app-main { padding-inline: 12px; }
+  .hero h1 { max-width: 100%; font-size: 36px; line-height: 0.94; white-space: normal; overflow-wrap: anywhere; }
+  .hero__telemetry div { padding-inline: 8px; }
+  .hero__telemetry strong { font-size: 9px; }
 }
 
 @media (min-width: 761px) and (max-height: 760px) {
