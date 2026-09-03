@@ -306,13 +306,62 @@ input[type='range']:focus-visible { outline: 2px solid var(--cyan); outline-offs
   .hero__telemetry strong { font-size: 9px; }
 }
 
-@media (min-width: 761px) and (max-height: 760px) {
-  .app-shell { grid-template-rows: 48px minmax(0, 1fr) 24px; }
-  .topbar { height: 48px; }
-  .hero { min-height: 68px; padding-block: 8px; }
-  .hero h1 { font-size: 40px; }
+@media (min-width: 761px) and (max-height: 820px) {
+  .app-shell { grid-template-rows: 44px minmax(0, 1fr) 20px; }
+  .topbar { height: 44px; }
+  .app-main { padding-bottom: 4px; }
+  .hero { min-height: 48px; padding-block: 4px; }
+  .hero h1 { margin-top: 3px; font-size: 32px; line-height: 0.82; }
   .hero p { display: none; }
-  .visual-column { grid-template-rows: minmax(0, 1fr) 172px; }
-  .metrics-panel, .comparison-panel { height: 172px; }
-  .signal { padding-block: 3px; }
+  .hero__telemetry div { padding-block: 6px; }
+  .hero__telemetry strong { margin-top: 4px; font-size: 10px; }
+  .workspace-grid { gap: 8px; }
+  .panel-kicker { padding: 6px 10px; }
+  .control-section { padding: 0 10px 5px; }
+  .control-section > .section-heading { padding-block: 6px; margin-bottom: 6px; }
+  .control-section:not([open]),
+  .control-panel:has(.control-section[open]) .control-section:not([open]) { flex-basis: 34px; }
+  .control-section:not([open]) > .section-heading,
+  .control-panel:has(.control-section[open]) .control-section:not([open]) > .section-heading { min-height: 34px; }
+  .control-section:not([open]) .section-heading p { display: none; }
+  .section-index { width: 19px; height: 19px; font-size: 9px; }
+  .section-heading h2 { font-size: 14px; }
+  .section-heading p { font-size: 8px; }
+  .select-label { margin-top: 6px; font-size: 8px; }
+  .select-label select { margin-top: 4px; padding-block: 6px; font-size: 9px; }
+  .rule-note { margin-top: 6px; font-size: 8px; line-height: 1.25; }
+  .range-control,
+  .control-section[open] .range-control { margin-top: 4px; }
+  .range-control__header label { font-size: 8px; }
+  .range-control__header output { font-size: 10px; }
+  .range-control input[type='range'] { height: 14px; margin-top: 3px; }
+  .split-control { gap: 8px; }
+  .mode-control { margin-top: 6px; }
+  .mode-control legend { margin-bottom: 4px; font-size: 8px; }
+  .segmented-control span { min-height: 28px; padding: 4px; font-size: 8px; }
+  .toggle-row { margin-top: 8px; font-size: 8px; }
+  .floor-note { margin-top: 6px; padding-top: 6px; font-size: 8px; line-height: 1.25; }
+  .visual-column { grid-template-rows: minmax(0, 1fr) 174px; gap: 8px; }
+  .metrics-panel, .comparison-panel { height: 174px; }
+  .tunnel-card__header { padding: 6px 10px 5px; }
+  .tunnel-card__header h2 { font-size: 17px; }
+  .tunnel-card__readout strong { font-size: 16px; }
+  .tunnel-stage--3d { min-height: 170px; }
+  .tunnel-card__footer { padding: 5px 10px 6px; }
+  .model-credit { padding-top: 4px; font-size: 8px; line-height: 1.1; }
+  .metrics-panel { padding: 5px 8px; }
+  .metrics-panel > .section-heading { margin-bottom: 3px; }
+  .metrics-panel h2 { font-size: 14px; }
+  .metric-status { padding: 2px 4px; font-size: 8px; }
+  .metric-card { padding: 4px 5px; }
+  .metric-card strong { margin: 3px 0; font-size: 13px; }
+  .metric-meta { font-size: 8px; }
+  .load-split { margin-top: 3px; padding-top: 3px; }
+  .load-split__header, .load-split__values { font-size: 8px; }
+  .load-bar { height: 3px; margin: 2px 0; }
+  .signal-grid { margin-top: 3px; }
+  .signal { padding: 2px 4px; }
+  .signal span { font-size: 8px; }
+  .signal b { margin-top: 1px; font-size: 8px; }
+  .app-footer { font-size: 8px; }
 }
