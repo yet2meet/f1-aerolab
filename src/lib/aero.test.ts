@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { cars, defaultParams } from '../data/cars'
-import { calculateAero } from './aero'
+import { calculateAero, rearWingLoadRatio } from './aero'
 
 const car = cars[0]
 const setup = () => defaultParams(car)
@@ -127,5 +127,30 @@ describe('calculateAero', () => {
     expect(result.rideHeightAverageMm).toBeCloseTo((15 + 90) / 2, 5)
     expect(result.totalDragN).toBe(0)
     expect(result.brakeBiasFrontPercent).toBe(60)
+  })
+})
+
+describe('rearWingLoadRatio', () => {
+  it('is neutral at the reference wing and follows rear load and low-drag states', () => {
+    const params = setup()
+    params.garage.rearWingLoadPercent = 55
+    params.garage.drsOpen = false
+    params.driver.activeAeroMode = 'corner'
+    expect(rearWingLoadRatio(car, params)).toBeCloseTo(1, 6)
+
+    params.garage.rearWingLoadPercent = 100
+    expect(rearWingLoadRatio(car, params)).toBeGreaterThan(1)
+
+    params.garage.rearWingLoadPercent = 55
+    params.ruleset = '2026'
+    params.driver.activeAeroMode = 'straight'
+    expect(rearWingLoadRatio(car, params)).toBeLessThan(1)
+  })
+
+  it('stays defined when the car is stationary', () => {
+    const params = setup()
+    params.run.speedKph = 0
+    params.garage.rearWingLoadPercent = 100
+    expect(rearWingLoadRatio(car, params)).toBeGreaterThan(1)
   })
 })

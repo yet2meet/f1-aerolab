@@ -106,7 +106,9 @@ export const resolveComponentPose = (
     frontWingMainplaneRotationZ: degToRad((params.garage.frontWingAngleDeg - 12) * 0.6 - (lowDrag && result.ruleset === '2026' ? 4 : 0)),
     frontWingFlapRotationZ: degToRad((params.garage.frontFlapPercent - 48) * 0.12 - (lowDrag && result.ruleset === '2026' ? 5 : 0)),
     rearWingMainplaneRotationZ: degToRad((params.garage.rearWingLoadPercent - 56) * 0.12),
-    rearWingFlapRotationZ: degToRad(lowDrag ? -12 : (params.garage.rearWingLoadPercent - 56) * 0.04),
+    // The flap carries most of a real rear-wing level change, so it follows the
+    // load setting at the mainplane's rate while staying an independent element.
+    rearWingFlapRotationZ: degToRad(lowDrag ? -12 : (params.garage.rearWingLoadPercent - 56) * 0.12),
     floorThroatScaleZ: THREE.MathUtils.lerp(0.92, 1.08, params.design.floorThroatSealPercent / 100),
     floorEdgeSpreadM: THREE.MathUtils.lerp(0.84, 0.98, params.design.floorEdgeSealPercent / 100),
     floorEdgeRotationX: degToRad(THREE.MathUtils.lerp(1.5, 7, params.design.floorEdgeSealPercent / 100)),

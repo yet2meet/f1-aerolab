@@ -19,8 +19,12 @@ import {
   setSurfaceFlowOpacity,
   updateSurfaceFlow,
   type FlowChangeFocus,
+  resolveLoadDrivenWakeUpwash,
   type SurfaceFlowRig,
+  type SurfaceFlowSnapshot,
 } from '../three/surfaceFlow'
+import { createComponentChangeOverlay, type ComponentChangeOverlay } from '../three/componentHighlight'
+import { rearWingLoadRatio } from '../lib/aero'
 import {
   analysisFloorGeometry,
   analysisRideHeightDatum,
@@ -68,8 +72,8 @@ type AirflowRig = {
 }
 
 const SURFACE_FLOW_TRANSITION_SECONDS = 0.28
-const SURFACE_FLOW_BASELINE_HOLD_SECONDS = 1.35
-const SURFACE_FLOW_BASELINE_FADE_SECONDS = 0.42
+const SURFACE_FLOW_BASELINE_HOLD_SECONDS = 4.5
+const SURFACE_FLOW_BASELINE_FADE_SECONDS = 0.9
 
 export const resolveFlowChangeFocus = (
   previous: SimulationParams,
@@ -541,6 +545,9 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
   const [windTracerCount, setWindTracerCount] = useState(0)
   const [windDeltaMm, setWindDeltaMm] = useState(0)
   const [windDeltaLabel, setWindDeltaLabel] = useState('等待翼面调整')
+  const [loadDrivenWake, setLoadDrivenWake] = useState(false)
+  const loadDrivenWakeRef = useRef(false)
+  loadDrivenWakeRef.current = loadDrivenWake
   latestRef.current = { car, params, result }
   const lowDragState = result.ruleset === '2026' ? result.activeAeroMode === 'straight' : result.drsActive
   const fieldLabel = lowDragState ? '低阻气流场' : '高下压力气流场'
@@ -630,6 +637,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
     let highDetailComponentRigAvailable = false
     let highDetailWheelNodes: SemanticWheelNodes = {}
     let highDetailWheelRigAvailable = false
+    let highDetailWheelRestZ = new Map<THREE.Object3D, number>()
     let surfaceFlowBounds: THREE.Box3 | null = null
     let surfaceFlow: SurfaceFlowRig | null = null
     let surfaceFlowOpacity = 1
@@ -639,9 +647,17 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       startOpacity: number
       holdUntil: number
       fadeSeconds: number
+      /** Set while the rig is the muted pre-adjustment reference that later rebuilds compare against. */
+      baseline?: { snapshot: SurfaceFlowSnapshot; params: SimulationParams; result: AeroResult }
+    } | null = null
+    let componentOverlay: {
+      overlay: ComponentChangeOverlay
+      holdUntil: number
+      fadeSeconds: number
     } | null = null
     let lastBuiltFlowShapeKey = ''
     let lastBuiltFlowParams: SimulationParams | null = null
+    let lastBuiltFlowResult: AeroResult | null = null
     let pendingFlowShapeKey = ''
     let flowRebuildDueAt = 0
     let loadToken = 0
@@ -653,7 +669,20 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       flow.dispose()
     }
 
-    const flowShapeKey = () => `reference:${latestRef.current.car.id}:${resolveReferenceFlowKey(latestRef.current.params)}`
+    const resolveWakeUpwash = () => (
+      loadDrivenWakeRef.current
+        ? resolveLoadDrivenWakeUpwash(rearWingLoadRatio(latestRef.current.car, latestRef.current.params))
+        : undefined
+    )
+    const flowShapeKey = () => {
+      const wake = resolveWakeUpwash()
+      return `reference:${latestRef.current.car.id}:${resolveReferenceFlowKey(latestRef.current.params)}`
+        + `:wake:${wake === undefined ? 'geometric' : wake.toFixed(3)}`
+    }
+    const disposeComponentOverlay = () => {
+      componentOverlay?.overlay.dispose()
+      componentOverlay = null
+    }
 
     const syncModelVisibility = () => {
       const visibility = resolveModelVisibility(modelModeRef.current, highDetailRoot !== null)
@@ -668,39 +697,70 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       if (!highDetailRoot || highDetailMeshes.length === 0) return
       const previousFlow = surfaceFlow
       const previousOpacity = surfaceFlowOpacity
-      const previousSnapshot = previousFlow ? captureSurfaceFlowSnapshot(previousFlow) : null
       const current = latestRef.current
-      const focus = lastBuiltFlowParams ? resolveFlowChangeFocus(lastBuiltFlowParams, current.params) : null
-      if (retiringSurfaceFlow) disposeSurfaceFlow(retiringSurfaceFlow.rig)
-      retiringSurfaceFlow = null
-      if (highDetailComponentRigAvailable) {
-        applyComponentPose(
-          highDetailComponentNodes,
-          resolveComponentPose(current.params, current.result),
-        )
+      const startedAt = performance.now() / 1000
+      // While a muted baseline is still on screen, keep comparing against it so a
+      // slider drag reads as one cumulative change instead of many tiny steps.
+      const anchor = retiringSurfaceFlow?.baseline && startedAt < retiringSurfaceFlow.holdUntil
+        ? retiringSurfaceFlow
+        : null
+      const comparison = anchor?.baseline
+        ?? (previousFlow && lastBuiltFlowParams && lastBuiltFlowResult
+          ? { snapshot: captureSurfaceFlowSnapshot(previousFlow), params: lastBuiltFlowParams, result: lastBuiltFlowResult }
+          : null)
+      const focus = comparison ? resolveFlowChangeFocus(comparison.params, current.params) : null
+      if (retiringSurfaceFlow && !anchor) {
+        disposeSurfaceFlow(retiringSurfaceFlow.rig)
+        retiringSurfaceFlow = null
       }
+      disposeComponentOverlay()
+      const currentPose = resolveComponentPose(current.params, current.result)
+      if (highDetailComponentRigAvailable) applyComponentPose(highDetailComponentNodes, currentPose)
+      carSystem.updateMatrixWorld(true)
+      // Sample with the wheels at rest: spinning tread would otherwise add
+      // millimetres of noise that reads as a wing-induced path change.
+      const spinningWheelZ = [...highDetailWheelRestZ.keys()].map((wheel) => wheel.rotation.z)
+      highDetailWheelRestZ.forEach((restZ, wheel) => { wheel.rotation.z = restZ })
       carSystem.updateMatrixWorld(true)
       if (!surfaceFlowBounds) surfaceFlowBounds = new THREE.Box3().setFromObject(highDetailRoot)
-      const nextFlow = buildSurfaceFlow(highDetailMeshes, surfaceFlowBounds, window.innerWidth <= 760)
-      const startedAt = performance.now() / 1000
-      const delta = previousSnapshot && focus
-        ? applySurfaceFlowDelta(nextFlow, previousSnapshot, focus, 3)
+      const nextFlow = buildSurfaceFlow(
+        highDetailMeshes,
+        surfaceFlowBounds,
+        window.innerWidth <= 760,
+        { wakeUpwashM: resolveWakeUpwash() },
+      )
+      ;[...highDetailWheelRestZ.keys()].forEach((wheel, index) => { wheel.rotation.z = spinningWheelZ[index] })
+      const delta = comparison && focus
+        ? applySurfaceFlowDelta(nextFlow, comparison.snapshot, focus, 3)
         : null
       surfaceFlow = nextFlow
-      surfaceFlowOpacity = reducedMotion ? 1 : 0
+      surfaceFlowOpacity = reducedMotion || anchor ? 1 : 0
       surfaceFlowTransitionStartedAt = startedAt
       setSurfaceFlowOpacity(nextFlow, surfaceFlowOpacity)
       scene.add(nextFlow.group)
-      if (previousFlow) {
-        if (delta && delta.affectedSamples > 0) {
+      const holdUntil = startedAt + SURFACE_FLOW_BASELINE_HOLD_SECONDS
+      const baselineFadeSeconds = reducedMotion ? 0 : SURFACE_FLOW_BASELINE_FADE_SECONDS
+      if (anchor) {
+        // The intermediate field is replaced outright; the original baseline stays.
+        if (previousFlow) disposeSurfaceFlow(previousFlow)
+        if (focus) anchor.holdUntil = holdUntil
+        else {
+          disposeSurfaceFlow(anchor.rig)
+          retiringSurfaceFlow = null
+        }
+      } else if (previousFlow) {
+        // Any real wing change starts a comparison, even when the first slider
+        // step is too small to move a sample, so a drag accumulates against it.
+        if (focus && comparison) {
           setSurfaceFlowBaselineStyle(previousFlow)
           const baselineOpacity = 0.34
           setSurfaceFlowOpacity(previousFlow, baselineOpacity)
           retiringSurfaceFlow = {
             rig: previousFlow,
             startOpacity: baselineOpacity,
-            holdUntil: startedAt + SURFACE_FLOW_BASELINE_HOLD_SECONDS,
-            fadeSeconds: reducedMotion ? 0 : SURFACE_FLOW_BASELINE_FADE_SECONDS,
+            holdUntil,
+            fadeSeconds: baselineFadeSeconds,
+            baseline: comparison,
           }
         } else if (reducedMotion) disposeSurfaceFlow(previousFlow)
         else retiringSurfaceFlow = {
@@ -710,8 +770,17 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
           fadeSeconds: SURFACE_FLOW_TRANSITION_SECONDS,
         }
       }
+      if (focus && comparison && highDetailComponentRigAvailable) {
+        const overlay = createComponentChangeOverlay(
+          highDetailComponentNodes,
+          resolveComponentPose(comparison.params, comparison.result),
+          currentPose,
+        )
+        if (overlay) componentOverlay = { overlay, holdUntil, fadeSeconds: baselineFadeSeconds }
+      }
       lastBuiltFlowShapeKey = flowShapeKey()
       lastBuiltFlowParams = current.params
+      lastBuiltFlowResult = current.result
       pendingFlowShapeKey = ''
       flowRebuildDueAt = 0
       setWindLayerCount(nextFlow.layerCount)
@@ -739,6 +808,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
     }
 
     const clearHighDetailModel = () => {
+      disposeComponentOverlay()
       if (surfaceFlow) {
         disposeSurfaceFlow(surfaceFlow)
         surfaceFlow = null
@@ -759,9 +829,11 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       highDetailComponentRigAvailable = false
       highDetailWheelNodes = {}
       highDetailWheelRigAvailable = false
+      highDetailWheelRestZ = new Map()
       surfaceFlowBounds = null
       lastBuiltFlowShapeKey = ''
       lastBuiltFlowParams = null
+      lastBuiltFlowResult = null
       pendingFlowShapeKey = ''
       flowRebuildDueAt = 0
       syncModelVisibility()
@@ -791,6 +863,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
         highDetailComponentRigAvailable = loaded.componentRigAvailable
         highDetailWheelNodes = loaded.wheelNodes
         highDetailWheelRigAvailable = loaded.wheelRigAvailable
+        highDetailWheelRestZ = new Map(Object.values(loaded.wheelNodes).map((wheel) => [wheel, wheel.rotation.z]))
         highDetailRoot.visible = true
         carSystem.add(highDetailRoot)
         carSystem.updateMatrixWorld(true)
@@ -915,6 +988,14 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
           retiringSurfaceFlow = null
         }
       }
+      if (componentOverlay) {
+        const overlayProgress = componentOverlay.fadeSeconds === 0
+          ? (transitionNow >= componentOverlay.holdUntil ? 1 : 0)
+          : THREE.MathUtils.smoothstep(transitionNow - componentOverlay.holdUntil, 0, componentOverlay.fadeSeconds)
+        const glow = reducedMotion ? 1 : 0.72 + Math.sin(elapsed * 5.2) * 0.28
+        componentOverlay.overlay.setOpacity((1 - overlayProgress) * glow)
+        if (overlayProgress >= 1 || modelModeRef.current !== 'reference') disposeComponentOverlay()
+      }
       controls.update()
       renderer.render(scene, camera)
     }
@@ -993,6 +1074,17 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
               {modelModeLabels[mode]}
             </button>
           ))}
+          {modelMode === 'reference' && referenceIsAdjustable && (
+            <button
+              type="button"
+              className={loadDrivenWake ? 'is-active' : ''}
+              aria-pressed={loadDrivenWake}
+              title="按后部下压力趋势缩放尾翼后的上洗高度（显示放大 ×3，非 CFD）"
+              onClick={() => setLoadDrivenWake((value) => !value)}
+            >
+              载荷尾流
+            </button>
+          )}
         </div>
         <div className="tunnel-3d-toolbar" aria-label="三维相机视角">
           {(['orbit', 'side', 'front'] as CameraView[]).map((view) => (
@@ -1007,7 +1099,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
           <span>前/后离地高度 <b>{params.garage.frontRideHeightMm}/{params.garage.rearRideHeightMm} mm</b></span>
           <span>阻力 <b>{Math.round(result.totalDragN).toLocaleString('zh-CN')} N</b></span>
           {modelMode === 'reference' && referenceIsAdjustable
-            ? <span className={windDeltaMm > 0 ? 'is-delta' : ''}>采样路径偏移 <b>{windDeltaMm > 0 ? `${windDeltaMm.toFixed(1)} mm` : '—'}</b></span>
+            ? <span className={windDeltaMm > 0 ? 'is-delta' : ''}>{loadDrivenWake ? '路径偏移·含趋势' : '采样路径偏移'} <b>{windDeltaMm > 0 ? `${windDeltaMm.toFixed(1)} mm` : '—'}</b></span>
             : modelMode === 'reference'
               ? <span>参考风场 <b>静态</b></span>
             : <span>部件响应 <b>分析趋势</b></span>}
@@ -1027,7 +1119,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
               : '授权参考模型 · 静态几何 · 部件调整请使用分析模型'
             : '参数化分析模型 · 独立空气动力表面'}
           {modelMode === 'reference' && referenceIsAdjustable
-            ? ' · 差值趋势 · 显示放大×3 · 非 CFD'
+            ? `${loadDrivenWake ? ' · 尾流按后部载荷趋势缩放' : ''} · 差值趋势 · 显示放大×3 · 非 CFD`
             : modelMode === 'reference'
               ? ' · 静态参考风场 · 非 CFD'
             : ' · 趋势视图 · 非 CFD'}

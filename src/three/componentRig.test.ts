@@ -99,6 +99,17 @@ describe('explicit aerodynamic component rig', () => {
     expect(mainplane.rotation.z).toBe(pose.frontWingMainplaneRotationZ)
   })
 
+  it('turns the rear flap with the rear load setting while it stays an independent node', () => {
+    const { params, result } = setup()
+    params.garage.rearWingLoadPercent = 56
+    const neutral = resolveComponentPose(params, { ...result, drsActive: false, activeAeroMode: 'corner' })
+    params.garage.rearWingLoadPercent = 100
+    const loaded = resolveComponentPose(params, { ...result, drsActive: false, activeAeroMode: 'corner' })
+
+    expect(THREE.MathUtils.radToDeg(loaded.rearWingFlapRotationZ - neutral.rearWingFlapRotationZ)).toBeCloseTo(44 * 0.12, 6)
+    expect(loaded.frontWingFlapRotationZ).toBe(neutral.frontWingFlapRotationZ)
+  })
+
   it('keeps chassis pose independent from every aero component input', () => {
     const { params } = setup()
     const before = resolveCarPose(params)

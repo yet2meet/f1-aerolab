@@ -167,3 +167,20 @@ export const calculateAero = (car: CarSpec, params: SimulationParams): AeroResul
     drsActive,
   }
 }
+
+/**
+ * Rear downforce relative to a neutral rear wing (55 %, DRS closed / corner
+ * mode) with everything else unchanged. Speed cancels out, so a fixed
+ * reference speed keeps the ratio defined when the car is stationary.
+ */
+export const rearWingLoadRatio = (car: CarSpec, params: SimulationParams) => {
+  const run = { ...params.run, speedKph: 200 }
+  const current = calculateAero(car, { ...params, run })
+  const neutral = calculateAero(car, {
+    ...params,
+    run,
+    driver: { ...params.driver, activeAeroMode: 'corner' },
+    garage: { ...params.garage, rearWingLoadPercent: 55, drsOpen: false },
+  })
+  return neutral.rearDownforceN > 0 ? current.rearDownforceN / neutral.rearDownforceN : 1
+}

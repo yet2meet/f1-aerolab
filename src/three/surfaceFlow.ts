@@ -18,6 +18,11 @@ export type SurfaceFlowRig = {
     marker: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>
     pulse: THREE.Mesh<THREE.TubeGeometry, THREE.ShaderMaterial>
     baseColor: THREE.Color
+    /** Colour the tracer is drawn in before any heat: its region colour, or grey as a baseline. */
+    displayColor: THREE.Color
+    /** Per-sample change intensity (0–1) along the lane, or null when unchanged. */
+    heat: Float32Array | null
+    xRange: [number, number]
     pathBaseOpacity: number
     markerBaseOpacity: number
     phase: number
@@ -29,6 +34,11 @@ export type SurfaceFlowRig = {
   sampleCount: number
   layerCount: number
   dispose: () => void
+}
+
+export type SurfaceFlowOptions = {
+  /** Height the upper lanes rise behind the last surface they cross. */
+  wakeUpwashM?: number
 }
 
 export type FlowRegion = 'upper' | 'floor' | 'side-left' | 'side-right'
@@ -57,7 +67,21 @@ const markerUp = new THREE.Vector3(0, 1, 0)
 const PULSE_BASE_OPACITY = 0.95
 const PULSES_PER_TRACER = 4
 const UPPER_STANDOFF_M = 0.06
-const WAKE_UPWASH_M = 0.32
+/** Largest per-sample rise or fall a trailing edge may impose on the flow leaving it. */
+const TRAILING_EDGE_MAX_STEP_M = 0.06
+export const WAKE_UPWASH_M = 0.32
+/** Display gain applied to the rear-load trend when it drives the wake (matches the ×3 heat gain). */
+export const LOAD_WAKE_TREND_GAIN = 3
+
+/**
+ * Trend-driven wake rise: scales the geometric upwash by the relative rear
+ * downforce. A trend visual, not a solved wake.
+ */
+export const resolveLoadDrivenWakeUpwash = (rearLoadRatio: number) => THREE.MathUtils.clamp(
+  WAKE_UPWASH_M * (1 + (rearLoadRatio - 1) * LOAD_WAKE_TREND_GAIN),
+  0.04,
+  0.7,
+)
 
 const fillMissing = (values: Array<number | null>, fallbackStart: number, fallbackEnd: number) => {
   const result = [...values]
@@ -82,6 +106,52 @@ const fillMissing = (values: Array<number | null>, fallbackStart: number, fallba
     }
   }
   return result as number[]
+}
+
+const hermite = (p0: number, m0: number, p1: number, m1: number, t: number) => {
+  const t2 = t * t
+  const t3 = t2 * t
+  return (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * m1
+}
+
+/**
+ * Like fillMissing, but air leaving a surface keeps that surface's trailing-edge
+ * slope (Kutta condition) and eases back, so a steeper wing element visibly turns
+ * the flow downstream instead of being bridged by a straight line.
+ */
+const fillWithTrailingEdges = (
+  constraints: Array<number | undefined>,
+  fallbackStart: number,
+  fallbackEnd: number,
+) => {
+  const values = fillMissing(constraints.map((value) => value ?? null), fallbackStart, fallbackEnd)
+  const slopeAt = (from: number, to: number) => {
+    const a = constraints[from]
+    const b = constraints[to]
+    if (a === undefined || b === undefined) return 0
+    return THREE.MathUtils.clamp(b - a, -TRAILING_EDGE_MAX_STEP_M, TRAILING_EDGE_MAX_STEP_M)
+  }
+  let index = 0
+  while (index < constraints.length) {
+    if (constraints[index] === undefined || constraints[index + 1] !== undefined) {
+      index += 1
+      continue
+    }
+    const trailing = index
+    let next = trailing + 1
+    while (next < constraints.length && constraints[next] === undefined) next += 1
+    const tail = next >= constraints.length
+    const target = tail ? constraints.length - 1 : next
+    const span = target - trailing
+    const exitSlope = slopeAt(trailing - 1, trailing) * span
+    const entrySlope = tail ? 0 : slopeAt(next, next + 1) * span
+    const endValue = tail ? fallbackEnd : constraints[next] as number
+    for (let step = 1; step < span + (tail ? 1 : 0); step += 1) {
+      values[trailing + step] = hermite(constraints[trailing] as number, exitSlope, endValue, entrySlope, step / span)
+    }
+    index = next
+  }
+  return values
 }
 
 const smooth = (values: number[], passes = 2) => {
@@ -189,9 +259,12 @@ const smokeFragmentShader = /* glsl */ `
 `
 
 const pulseVertexShader = /* glsl */ `
+  attribute float flowDelta;
   varying vec2 vUv;
+  varying float vFlowDelta;
   void main() {
     vUv = uv;
+    vFlowDelta = flowDelta;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `
@@ -205,11 +278,15 @@ const pulseFragmentShader = /* glsl */ `
   uniform float uTransition;
   uniform vec3 uColor;
   varying vec2 vUv;
+  varying float vFlowDelta;
   void main() {
     float s = fract(vUv.x * uCount - uTravel + uPhase);
     float tail = pow(s, 3.0) * (1.0 - smoothstep(0.94, 1.0, s));
     float ends = smoothstep(0.0, 0.04, vUv.x) * (1.0 - smoothstep(0.95, 1.0, vUv.x));
-    vec3 color = mix(uColor, vec3(1.0), smoothstep(0.7, 0.97, s) * 0.55);
+    vec3 deltaWarm = mix(vec3(1.0, 0.92, 0.18), vec3(1.0, 0.31, 0.06), smoothstep(0.12, 0.58, vFlowDelta));
+    vec3 deltaHot = mix(deltaWarm, vec3(1.0, 0.04, 0.62), smoothstep(0.58, 1.0, vFlowDelta));
+    vec3 base = mix(uColor, deltaHot, smoothstep(0.025, 0.78, vFlowDelta) * 0.95);
+    vec3 color = mix(base, vec3(1.0), smoothstep(0.7, 0.97, s) * 0.55);
     gl_FragColor = vec4(color, uOpacity * uTransition * tail * ends);
   }
 `
@@ -313,6 +390,54 @@ const addSmokeLayers = (
   })
 }
 
+const deltaHeatColor = (value: number) => {
+  const yellow = new THREE.Color(0xffea2e)
+  const orange = new THREE.Color(0xff4f0f)
+  const magenta = new THREE.Color(0xff0a9d)
+  return value < 0.58
+    ? yellow.lerp(orange, value / 0.58)
+    : orange.lerp(magenta, (value - 0.58) / 0.42)
+}
+
+/** Interpolates a lane's per-sample heat at world x (samples are evenly spaced in x). */
+const heatAtX = (heat: Float32Array | null, xRange: [number, number], x: number) => {
+  if (!heat || heat.length === 0) return 0
+  const position = THREE.MathUtils.clamp((x - xRange[0]) / Math.max(1e-6, xRange[1] - xRange[0]), 0, 1) * (heat.length - 1)
+  const index = Math.floor(position)
+  const next = Math.min(heat.length - 1, index + 1)
+  return THREE.MathUtils.lerp(heat[index], heat[next], position - index)
+}
+
+const heatedColor = (base: THREE.Color, intensity: number, target: THREE.Color) => {
+  target.copy(base)
+  if (intensity <= 0.025) return target
+  return target.lerp(deltaHeatColor(intensity), THREE.MathUtils.smoothstep(intensity, 0.025, 0.78) * 0.95)
+}
+
+/** Writes the tracer's heat into its path colours and pulse attribute, so only the changed stretch lights up. */
+const paintTracer = (tracer: SurfaceFlowRig['tracers'][number]) => {
+  const pathGeometry = tracer.path.geometry
+  const pathPositions = pathGeometry.getAttribute('position') as THREE.BufferAttribute
+  const colors = new Float32Array(pathPositions.count * 3)
+  const color = new THREE.Color()
+  for (let index = 0; index < pathPositions.count; index += 1) {
+    heatedColor(tracer.displayColor, heatAtX(tracer.heat, tracer.xRange, pathPositions.getX(index)), color)
+      .toArray(colors, index * 3)
+  }
+  pathGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+
+  const pulsePositions = tracer.pulse.geometry.getAttribute('position') as THREE.BufferAttribute
+  const pulseHeat = new Float32Array(pulsePositions.count)
+  if (tracer.heat) {
+    for (let index = 0; index < pulsePositions.count; index += 1) {
+      pulseHeat[index] = heatAtX(tracer.heat, tracer.xRange, pulsePositions.getX(index))
+    }
+  }
+  tracer.pulse.geometry.setAttribute('flowDelta', new THREE.Float32BufferAttribute(pulseHeat, 1))
+  tracer.pulse.material.uniforms.uColor.value.copy(tracer.displayColor)
+  tracer.marker.material.color.copy(tracer.displayColor)
+}
+
 const addTracer = (
   group: THREE.Group,
   tracers: SurfaceFlowRig['tracers'],
@@ -326,7 +451,8 @@ const addTracer = (
   const path = new THREE.Mesh(
     new THREE.TubeGeometry(curve, Math.max(96, points.length * 2), 0.008, 5, false),
     new THREE.MeshBasicMaterial({
-      color,
+      color: 0xffffff,
+      vertexColors: true,
       transparent: true,
       opacity: 0.58,
       depthWrite: false,
@@ -357,7 +483,7 @@ const addTracer = (
   pulse.renderOrder = 14
   group.add(pulse)
   pulseMaterials.push(pulseMaterial)
-  tracers.push({
+  const tracer: SurfaceFlowRig['tracers'][number] = {
     id,
     region,
     curve,
@@ -365,17 +491,24 @@ const addTracer = (
     marker,
     pulse,
     baseColor: new THREE.Color(color),
+    displayColor: new THREE.Color(color),
+    heat: null,
+    xRange: [points[0].x, points[points.length - 1].x],
     pathBaseOpacity: 0.58,
     markerBaseOpacity: 0.9,
     phase,
-  })
+  }
+  paintTracer(tracer)
+  tracers.push(tracer)
 }
 
 export const buildSurfaceFlow = (
   meshes: THREE.Mesh[],
   bounds: THREE.Box3,
   reducedQuality = false,
+  options: SurfaceFlowOptions = {},
 ): SurfaceFlowRig => {
+  const wakeUpwashM = options.wakeUpwashM ?? WAKE_UPWASH_M
   const group = new THREE.Group()
   group.name = 'mesh-sampled-volumetric-wind'
   const materials: THREE.ShaderMaterial[] = []
@@ -388,7 +521,7 @@ export const buildSurfaceFlow = (
     if (!mesh.geometry.boundsTree) mesh.geometry.computeBoundsTree({ targetLeafSize: 12 })
   })
 
-  const sampleCount = 64
+  const sampleCount = 96
   const inletX = bounds.min.x - 1.55
   const outletX = bounds.max.x + 1.9
   const xs = sampleXs(inletX, outletX, sampleCount)
@@ -409,8 +542,8 @@ export const buildSurfaceFlow = (
     // Free stream arrives level just above the first surface it meets, and leaves
     // with upwash behind the last one (rear wing / diffuser lift the wake).
     const start = range ? range.first + 0.1 : 0.62 + laneIndex * 0.02
-    const end = range ? range.last + WAKE_UPWASH_M : 0.78 + laneIndex * 0.025
-    const filled = fillMissing(constraints.map((value) => value ?? null), start, end)
+    const end = range ? range.last + wakeUpwashM : 0.78 + laneIndex * 0.025
+    const filled = fillWithTrailingEdges(constraints, start, end)
     const heights = envelope(filled, constraints, 'above')
     return xs.map((x, index) => new THREE.Vector3(x, heights[index], z))
   })
@@ -587,15 +720,6 @@ const displayDeltaForRows = (
   return { output, maxOffsetM, sumOffsetM, affectedSamples }
 }
 
-const deltaHeatColor = (value: number) => {
-  const yellow = new THREE.Color(0xffea2e)
-  const orange = new THREE.Color(0xff4f0f)
-  const magenta = new THREE.Color(0xff0a9d)
-  return value < 0.58
-    ? yellow.lerp(orange, value / 0.58)
-    : orange.lerp(magenta, (value - 0.58) / 0.42)
-}
-
 export const applySurfaceFlowDelta = (
   rig: SurfaceFlowRig,
   baseline: SurfaceFlowSnapshot,
@@ -607,11 +731,11 @@ export const applySurfaceFlowDelta = (
   let affectedSamples = 0
 
   rig.tracers.forEach((tracer) => {
-    tracer.path.material.color.copy(tracer.baseColor)
-    tracer.marker.material.color.copy(tracer.baseColor)
-    tracer.pulse.material.uniforms.uColor.value.copy(tracer.baseColor)
+    tracer.displayColor.copy(tracer.baseColor)
+    tracer.heat = null
     tracer.path.material.opacity = tracer.pathBaseOpacity
     tracer.marker.material.opacity = tracer.markerBaseOpacity
+    paintTracer(tracer)
   })
 
   rig.fields.forEach((field) => {
@@ -648,13 +772,10 @@ export const applySurfaceFlowDelta = (
     )
     const intensity = Math.max(...delta.output)
     if (intensity > 0.025) {
-      const color = deltaHeatColor(intensity)
-      tracer.path.material.color.copy(color)
-      tracer.marker.material.color.copy(color)
-      tracer.pulse.material.uniforms.uColor.value.copy(color)
+      tracer.heat = delta.output
       tracer.path.material.opacity = 0.64 + intensity * 0.24
-      tracer.marker.material.opacity = 0.9
     }
+    paintTracer(tracer)
     maxOffsetM = Math.max(maxOffsetM, delta.maxOffsetM)
   })
 
@@ -676,11 +797,10 @@ export const setSurfaceFlowBaselineStyle = (rig: SurfaceFlowRig) => {
     const count = (geometry.getAttribute('position') as THREE.BufferAttribute).count
     geometry.setAttribute('flowDelta', new THREE.Float32BufferAttribute(new Float32Array(count), 1))
   })
-  rig.opacityMaterials.forEach((entry) => {
-    entry.material.color.copy(baselineColor)
-  })
-  rig.pulseMaterials.forEach((material) => {
-    material.uniforms.uColor.value.copy(baselineColor)
+  rig.tracers.forEach((tracer) => {
+    tracer.displayColor.copy(baselineColor)
+    tracer.heat = null
+    paintTracer(tracer)
   })
 }
 
@@ -711,11 +831,15 @@ export const updateSurfaceFlow = (
     ) * rig.styleFlowStrengthScale
   })
   const flowRate = reducedMotion ? 0 : 0.022 + speedKph / 5200
-  rig.tracers.forEach(({ curve, marker, pulse, phase }, index) => {
+  rig.tracers.forEach((tracer, index) => {
+    const { curve, marker, pulse, phase } = tracer
     const travel = elapsed * flowRate * (0.9 + index * 0.018)
     pulse.material.uniforms.uTravel.value = travel * PULSES_PER_TRACER
     const progress = (phase + travel) % 1
     marker.position.copy(curve.getPointAt(progress))
     marker.quaternion.setFromUnitVectors(markerUp, curve.getTangentAt(progress).normalize())
+    if (tracer.heat) {
+      heatedColor(tracer.displayColor, heatAtX(tracer.heat, tracer.xRange, marker.position.x), marker.material.color)
+    }
   })
 }
