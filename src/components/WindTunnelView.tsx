@@ -45,9 +45,9 @@ type WindTunnelViewProps = {
   result: AeroResult
   onReferenceCapabilityChange?: (capability: { referenceMode: boolean; wingAdjustable: boolean }) => void
 }
-type CameraView = 'orbit' | 'side' | 'front'
+type CameraView = 'orbit' | 'side' | 'front' | 'rear'
 export type ModelMode = 'analysis' | 'reference'
-const cameraViewLabels: Record<CameraView, string> = { orbit: '环绕', side: '侧视', front: '正视' }
+const cameraViewLabels: Record<CameraView, string> = { orbit: '环绕', side: '侧视', front: '正视', rear: '尾流' }
 const modelModeLabels: Record<ModelMode, string> = { analysis: '分析模型', reference: '参考模型' }
 export type CarRig = {
   root: THREE.Group
@@ -75,6 +75,8 @@ type AirflowRig = {
 const SURFACE_FLOW_TRANSITION_SECONDS = 0.28
 const SURFACE_FLOW_BASELINE_HOLD_SECONDS = 4.5
 const SURFACE_FLOW_BASELINE_FADE_SECONDS = 0.9
+const ORANGE_ACCENT_INTENSITY = 15
+const ORANGE_ACCENT_REFERENCE_INTENSITY = 0
 
 export const resolveFlowChangeFocus = (
   previous: SimulationParams,
@@ -607,7 +609,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
     const cyanLight = new THREE.PointLight(0x47d7ff, 17, 15)
     cyanLight.position.set(-4, 2.5, 4)
     scene.add(cyanLight)
-    const orangeLight = new THREE.PointLight(0xff6b2c, 15, 14)
+    const orangeLight = new THREE.PointLight(0xff6b2c, ORANGE_ACCENT_INTENSITY, 14)
     orangeLight.position.set(4, 1.6, -3.5)
     scene.add(orangeLight)
 
@@ -692,6 +694,10 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       if (highDetailRoot) highDetailRoot.visible = visibility.reference
       if (surfaceFlow) surfaceFlow.group.visible = visibility.reference
       if (retiringSurfaceFlow) retiringSurfaceFlow.rig.group.visible = visibility.reference
+      // The orange accent pools on the metallic floor behind the reference car and
+      // competes with the orange-magenta change heat; even dimmed, the specular
+      // highlight saturates, so it is switched off there.
+      orangeLight.intensity = visibility.reference ? ORANGE_ACCENT_REFERENCE_INTENSITY : ORANGE_ACCENT_INTENSITY
     }
 
     const rebuildSurfaceFlow = () => {
@@ -889,6 +895,8 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
     setCameraViewRef.current = (view) => {
       if (view === 'side') camera.position.set(0, 2.15, 11.25)
       else if (view === 'front') camera.position.set(-8.45, 2.1, 0.12)
+      // Rear three-quarter: looks along the wake to read rear-wing upwash.
+      else if (view === 'rear') camera.position.set(7.4, 2.9, 4.3)
       else camera.position.set(6.25, 3.25, 6.85)
       controls.target.set(0, 0.78, 0)
       controls.update()
@@ -1091,7 +1099,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
           )}
         </div>
         <div className="tunnel-3d-toolbar" aria-label="三维相机视角">
-          {(['orbit', 'side', 'front'] as CameraView[]).map((view) => (
+          {(['orbit', 'side', 'front', 'rear'] as CameraView[]).map((view) => (
             <button type="button" key={view} className={cameraView === view ? 'is-active' : ''} aria-pressed={cameraView === view} onClick={() => chooseView(view)}>
               {cameraViewLabels[view]}
             </button>
@@ -1112,7 +1120,9 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       <div className="tunnel-card__footer">
         <div className="legend"><span className="legend-line legend-line--cyan" /> 上部气流</div>
         <div className="legend"><span className="legend-line legend-line--lime" /> 底板高速气流</div>
-        <div className="legend"><span className="legend-line legend-line--orange" /> 尾流</div>
+        {modelMode === 'reference'
+          ? <div className="legend"><span className="legend-line legend-line--violet" /> 侧面气流</div>
+          : <div className="legend"><span className="legend-line legend-line--orange" /> 尾流</div>}
         {modelMode === 'reference' && referenceIsAdjustable && (
           <div className="legend"><span className="legend-line legend-line--delta" /> 调整影响 / {windDeltaLabel}</div>
         )}
