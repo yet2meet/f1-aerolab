@@ -8,6 +8,7 @@ THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree
 export type SurfaceFlowRig = {
   group: THREE.Group
   materials: THREE.ShaderMaterial[]
+  pulseMaterials: THREE.ShaderMaterial[]
   opacityMaterials: Array<{ material: THREE.MeshBasicMaterial; baseOpacity: number }>
   tracers: Array<{
     id: string
@@ -15,6 +16,7 @@ export type SurfaceFlowRig = {
     curve: THREE.CatmullRomCurve3
     path: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>
     marker: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>
+    pulse: THREE.Mesh<THREE.TubeGeometry, THREE.ShaderMaterial>
     baseColor: THREE.Color
     pathBaseOpacity: number
     markerBaseOpacity: number
@@ -51,8 +53,11 @@ export type SurfaceFlowDelta = {
   affectedSamples: number
 }
 
-type Sample = { point: THREE.Vector3; constraint?: number }
 const markerUp = new THREE.Vector3(0, 1, 0)
+const PULSE_BASE_OPACITY = 0.95
+const PULSES_PER_TRACER = 4
+const UPPER_STANDOFF_M = 0.06
+const WAKE_UPWASH_M = 0.32
 
 const fillMissing = (values: Array<number | null>, fallbackStart: number, fallbackEnd: number) => {
   const result = [...values]
@@ -88,6 +93,30 @@ const smooth = (values: number[], passes = 2) => {
     })
   }
   return current
+}
+
+// Relaxes a lane like a taut band held off the body: it keeps clear of every
+// sampled surface point but rises before obstacles instead of spiking over them.
+const envelope = (
+  values: number[],
+  constraints: Array<number | undefined>,
+  keep: 'above' | 'below',
+  passes = 10,
+) => {
+  const clampToBody = (current: number[]) => current.map((value, index) => {
+    const constraint = constraints[index]
+    if (constraint === undefined) return value
+    return keep === 'above' ? Math.max(value, constraint) : Math.min(value, constraint)
+  })
+  let current = clampToBody(values)
+  for (let pass = 0; pass < passes; pass += 1) current = clampToBody(smooth(current, 1))
+  return current
+}
+
+const knownRange = (constraints: Array<number | undefined>) => {
+  const first = constraints.find((value) => value !== undefined)
+  const last = [...constraints].reverse().find((value) => value !== undefined)
+  return first === undefined || last === undefined ? null : { first, last }
 }
 
 const sampleXs = (minimum: number, maximum: number, count: number) => (
@@ -158,6 +187,48 @@ const smokeFragmentShader = /* glsl */ `
     gl_FragColor = vec4(smoke, alpha);
   }
 `
+
+const pulseVertexShader = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+
+// Comet-shaped pulses travelling downstream along a tracer: bright head, fading tail.
+const pulseFragmentShader = /* glsl */ `
+  uniform float uTravel;
+  uniform float uCount;
+  uniform float uPhase;
+  uniform float uOpacity;
+  uniform float uTransition;
+  uniform vec3 uColor;
+  varying vec2 vUv;
+  void main() {
+    float s = fract(vUv.x * uCount - uTravel + uPhase);
+    float tail = pow(s, 3.0) * (1.0 - smoothstep(0.94, 1.0, s));
+    float ends = smoothstep(0.0, 0.04, vUv.x) * (1.0 - smoothstep(0.95, 1.0, vUv.x));
+    vec3 color = mix(uColor, vec3(1.0), smoothstep(0.7, 0.97, s) * 0.55);
+    gl_FragColor = vec4(color, uOpacity * uTransition * tail * ends);
+  }
+`
+
+const makePulseMaterial = (color: number, phase: number, count: number) => new THREE.ShaderMaterial({
+  uniforms: {
+    uTravel: { value: 0 },
+    uCount: { value: count },
+    uPhase: { value: phase },
+    uOpacity: { value: PULSE_BASE_OPACITY },
+    uTransition: { value: 1 },
+    uColor: { value: new THREE.Color(color) },
+  },
+  vertexShader: pulseVertexShader,
+  fragmentShader: pulseFragmentShader,
+  transparent: true,
+  depthWrite: false,
+  depthTest: true,
+})
 
 const makeSmokeMaterial = (color: number, opacity: number, phase: number) => new THREE.ShaderMaterial({
   uniforms: {
@@ -245,6 +316,7 @@ const addSmokeLayers = (
 const addTracer = (
   group: THREE.Group,
   tracers: SurfaceFlowRig['tracers'],
+  pulseMaterials: THREE.ShaderMaterial[],
   points: THREE.Vector3[],
   color: number,
   id: string,
@@ -252,7 +324,7 @@ const addTracer = (
 ) => {
   const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.5)
   const path = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, Math.max(72, points.length * 2), 0.007, 5, false),
+    new THREE.TubeGeometry(curve, Math.max(96, points.length * 2), 0.008, 5, false),
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -273,16 +345,29 @@ const addTracer = (
   marker.renderOrder = 13
   marker.name = 'smoke-embedded-flow-marker'
   group.add(marker)
+
+  const phase = (tracers.length * 0.217) % 1
+  const pulseMaterial = makePulseMaterial(color, phase, PULSES_PER_TRACER)
+  const pulse = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, Math.max(160, points.length * 3), 0.017, 6, false),
+    pulseMaterial,
+  )
+  pulse.name = 'smoke-embedded-flow-pulse'
+  pulse.frustumCulled = false
+  pulse.renderOrder = 14
+  group.add(pulse)
+  pulseMaterials.push(pulseMaterial)
   tracers.push({
     id,
     region,
     curve,
     path,
     marker,
+    pulse,
     baseColor: new THREE.Color(color),
     pathBaseOpacity: 0.58,
     markerBaseOpacity: 0.9,
-    phase: (tracers.length * 0.217) % 1,
+    phase,
   })
 }
 
@@ -294,6 +379,7 @@ export const buildSurfaceFlow = (
   const group = new THREE.Group()
   group.name = 'mesh-sampled-volumetric-wind'
   const materials: THREE.ShaderMaterial[] = []
+  const pulseMaterials: THREE.ShaderMaterial[] = []
   const tracers: SurfaceFlowRig['tracers'] = []
   const fields: FlowField[] = []
   const raycaster = new THREE.Raycaster()
@@ -302,7 +388,7 @@ export const buildSurfaceFlow = (
     if (!mesh.geometry.boundsTree) mesh.geometry.computeBoundsTree({ targetLeafSize: 12 })
   })
 
-  const sampleCount = 44
+  const sampleCount = 64
   const inletX = bounds.min.x - 1.55
   const outletX = bounds.max.x + 1.9
   const xs = sampleXs(inletX, outletX, sampleCount)
@@ -314,17 +400,19 @@ export const buildSurfaceFlow = (
 
   const topLanes = Array.from({ length: 13 }, (_, index) => THREE.MathUtils.lerp(-0.96, 0.96, index / 12) * bodyWidth * 0.5)
   const topRows = topLanes.map((z, laneIndex) => {
-    const samples: Sample[] = xs.map((x) => {
+    const constraints = xs.map((x) => {
       raycaster.set(new THREE.Vector3(x, topOriginY, z), down)
       const hit = raycaster.intersectObjects(meshes, false)[0]
-      const constraint = hit?.point.y === undefined ? undefined : hit.point.y + 0.045
-      return { point: new THREE.Vector3(x, constraint ?? 0, z), constraint }
+      return hit ? hit.point.y + UPPER_STANDOFF_M : undefined
     })
-    const filled = smooth(fillMissing(samples.map((sample) => sample.constraint ?? null), 0.62 + laneIndex * 0.02, 0.78 + laneIndex * 0.025))
-    samples.forEach((sample, index) => {
-      sample.point.y = sample.constraint === undefined ? filled[index] : Math.max(sample.constraint, filled[index])
-    })
-    return samples.map((sample) => sample.point)
+    const range = knownRange(constraints)
+    // Free stream arrives level just above the first surface it meets, and leaves
+    // with upwash behind the last one (rear wing / diffuser lift the wake).
+    const start = range ? range.first + 0.1 : 0.62 + laneIndex * 0.02
+    const end = range ? range.last + WAKE_UPWASH_M : 0.78 + laneIndex * 0.025
+    const filled = fillMissing(constraints.map((value) => value ?? null), start, end)
+    const heights = envelope(filled, constraints, 'above')
+    return xs.map((x, index) => new THREE.Vector3(x, heights[index], z))
   })
   addSmokeLayers(
     group,
@@ -333,28 +421,27 @@ export const buildSurfaceFlow = (
     new THREE.Vector3(0, 1, 0),
     reducedQuality ? [0, 0.09] : [0, 0.065, 0.13],
     0xcceef4,
-    reducedQuality ? [0.18, 0.1] : [0.16, 0.11, 0.07],
+    reducedQuality ? [0.12, 0.07] : [0.11, 0.075, 0.045],
     fields,
     'upper',
     'upper',
   )
   ;[2, 4, 6, 8, 10].forEach((rowIndex) => addTracer(
-    group, tracers, topRows[rowIndex], 0x9eeaff, `upper:row-${rowIndex}`, 'upper',
+    group, tracers, pulseMaterials, topRows[rowIndex], 0x2fd6ff, `upper:row-${rowIndex}`, 'upper',
   ))
 
   const floorLanes = Array.from({ length: 9 }, (_, index) => THREE.MathUtils.lerp(-0.8, 0.8, index / 8) * bodyWidth * 0.43)
   const floorRows = floorLanes.map((z) => {
-    const samples: Sample[] = xs.map((x) => {
+    const constraints = xs.map((x) => {
       raycaster.set(new THREE.Vector3(x, floorOriginY, z), up)
       const hit = raycaster.intersectObjects(meshes, false)[0]
-      const constraint = hit?.point.y === undefined ? undefined : Math.max(0.035, hit.point.y - 0.035)
-      return { point: new THREE.Vector3(x, constraint ?? 0, z), constraint }
+      return hit ? Math.max(0.035, hit.point.y - 0.035) : undefined
     })
-    const filled = smooth(fillMissing(samples.map((sample) => sample.constraint ?? null), 0.09, 0.26))
-    samples.forEach((sample, index) => {
-      sample.point.y = sample.constraint === undefined ? filled[index] : Math.min(sample.constraint, filled[index])
-    })
-    return samples.map((sample) => sample.point)
+    const range = knownRange(constraints)
+    const end = range ? Math.max(0.26, range.last + 0.18) : 0.26
+    const filled = fillMissing(constraints.map((value) => value ?? null), 0.09, end)
+    const heights = envelope(filled, constraints, 'below').map((value) => Math.max(0.03, value))
+    return xs.map((x, index) => new THREE.Vector3(x, heights[index], z))
   })
   addSmokeLayers(
     group,
@@ -363,13 +450,13 @@ export const buildSurfaceFlow = (
     new THREE.Vector3(0, -1, 0),
     reducedQuality ? [0] : [0, 0.045],
     0xe3f3cf,
-    reducedQuality ? [0.17] : [0.15, 0.09],
+    reducedQuality ? [0.13] : [0.12, 0.07],
     fields,
     'floor',
     'floor',
   )
   ;[2, 4, 6].forEach((rowIndex) => addTracer(
-    group, tracers, floorRows[rowIndex], 0xd9ff67, `floor:row-${rowIndex}`, 'floor',
+    group, tracers, pulseMaterials, floorRows[rowIndex], 0xb8ff2e, `floor:row-${rowIndex}`, 'floor',
   ))
 
   const outsideZ = Math.max(Math.abs(bounds.min.z), Math.abs(bounds.max.z)) + 0.8
@@ -377,22 +464,23 @@ export const buildSurfaceFlow = (
     const sideRows = Array.from({ length: 8 }, (_, laneIndex) => {
       const y = 0.22 + laneIndex * 0.22
       const direction = new THREE.Vector3(0, 0, -side)
-      const samples: Sample[] = xs.map((x) => {
+      const constraints = xs.map((x) => {
         raycaster.set(new THREE.Vector3(x, y, side * outsideZ), direction)
         const hit = raycaster.intersectObjects(meshes, false)[0]
-        const constraint = hit?.point.z === undefined ? undefined : hit.point.z + side * 0.045
-        return { point: new THREE.Vector3(x, y, constraint ?? 0), constraint }
+        return hit ? side * hit.point.z + 0.045 : undefined
       })
-      const fallback = side * (outsideZ - 0.1 + laneIndex * 0.045)
-      const filled = smooth(fillMissing(samples.map((sample) => sample.constraint ?? null), fallback, fallback + side * 0.3))
-      samples.forEach((sample, index) => {
-        if (sample.constraint === undefined) sample.point.z = filled[index]
-        else sample.point.z = side > 0 ? Math.max(sample.constraint, filled[index]) : Math.min(sample.constraint, filled[index])
-      })
-      return samples.map((sample) => sample.point)
+      const range = knownRange(constraints)
+      const fallback = outsideZ - 0.1 + laneIndex * 0.045
+      const start = range ? Math.min(fallback, range.first + 0.12) : fallback
+      const end = range ? range.last + 0.3 : fallback + 0.3
+      const filled = fillMissing(constraints.map((value) => value ?? null), start, end)
+      const widths = envelope(filled, constraints, 'above')
+      return xs.map((x, index) => new THREE.Vector3(x, y, side * widths[index]))
     })
     const region = side < 0 ? 'side-left' : 'side-right'
-    addTracer(group, tracers, sideRows[3], 0xf3fbff, `${region}:row-3`, region)
+    ;[1, 3].forEach((rowIndex) => addTracer(
+      group, tracers, pulseMaterials, sideRows[rowIndex], 0xd9b8ff, `${region}:row-${rowIndex}`, region,
+    ))
   }
 
   const disposedMaterials = new Set<THREE.Material>()
@@ -425,6 +513,7 @@ export const buildSurfaceFlow = (
   return {
     group,
     materials,
+    pulseMaterials,
     opacityMaterials,
     tracers,
     fields,
@@ -520,6 +609,7 @@ export const applySurfaceFlowDelta = (
   rig.tracers.forEach((tracer) => {
     tracer.path.material.color.copy(tracer.baseColor)
     tracer.marker.material.color.copy(tracer.baseColor)
+    tracer.pulse.material.uniforms.uColor.value.copy(tracer.baseColor)
     tracer.path.material.opacity = tracer.pathBaseOpacity
     tracer.marker.material.opacity = tracer.markerBaseOpacity
   })
@@ -561,6 +651,7 @@ export const applySurfaceFlowDelta = (
       const color = deltaHeatColor(intensity)
       tracer.path.material.color.copy(color)
       tracer.marker.material.color.copy(color)
+      tracer.pulse.material.uniforms.uColor.value.copy(color)
       tracer.path.material.opacity = 0.64 + intensity * 0.24
       tracer.marker.material.opacity = 0.9
     }
@@ -588,6 +679,9 @@ export const setSurfaceFlowBaselineStyle = (rig: SurfaceFlowRig) => {
   rig.opacityMaterials.forEach((entry) => {
     entry.material.color.copy(baselineColor)
   })
+  rig.pulseMaterials.forEach((material) => {
+    material.uniforms.uColor.value.copy(baselineColor)
+  })
 }
 
 export const setSurfaceFlowOpacity = (rig: SurfaceFlowRig, opacity: number) => {
@@ -597,6 +691,9 @@ export const setSurfaceFlowOpacity = (rig: SurfaceFlowRig, opacity: number) => {
   })
   rig.opacityMaterials.forEach(({ material, baseOpacity }) => {
     material.opacity = baseOpacity * rig.styleOpacityScale * clamped
+  })
+  rig.pulseMaterials.forEach((material) => {
+    material.uniforms.uTransition.value = clamped * rig.styleOpacityScale
   })
 }
 
@@ -614,8 +711,10 @@ export const updateSurfaceFlow = (
     ) * rig.styleFlowStrengthScale
   })
   const flowRate = reducedMotion ? 0 : 0.022 + speedKph / 5200
-  rig.tracers.forEach(({ curve, marker, phase }, index) => {
-    const progress = (phase + elapsed * flowRate * (0.9 + index * 0.018)) % 1
+  rig.tracers.forEach(({ curve, marker, pulse, phase }, index) => {
+    const travel = elapsed * flowRate * (0.9 + index * 0.018)
+    pulse.material.uniforms.uTravel.value = travel * PULSES_PER_TRACER
+    const progress = (phase + travel) % 1
     marker.position.copy(curve.getPointAt(progress))
     marker.quaternion.setFromUnitVectors(markerUp, curve.getTangentAt(progress).normalize())
   })

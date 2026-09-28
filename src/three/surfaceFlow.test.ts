@@ -32,10 +32,43 @@ describe('surface flow', () => {
     const rig = createFlow()
 
     expect(rig.layerCount).toBe(5)
-    expect(rig.tracers).toHaveLength(10)
+    expect(rig.tracers).toHaveLength(12)
     expect(rig.sampleCount).toBeGreaterThan(1_000)
     expect(rig.group.getObjectsByProperty('name', 'continuous-volumetric-wind-sheet')).toHaveLength(5)
-    expect(rig.group.getObjectsByProperty('name', 'smoke-embedded-flow-tracer')).toHaveLength(10)
+    expect(rig.group.getObjectsByProperty('name', 'smoke-embedded-flow-tracer')).toHaveLength(12)
+    expect(rig.group.getObjectsByProperty('name', 'smoke-embedded-flow-pulse')).toHaveLength(12)
+  })
+
+  it('keeps tracers clear of the body without spiking over narrow obstacles', () => {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(4, 0.4, 1.8))
+    body.position.y = 0.4
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 1.8))
+    post.position.set(0, 0.9, 0)
+    const model = new THREE.Group()
+    model.add(body, post)
+    model.updateMatrixWorld(true)
+    const rig = buildSurfaceFlow([body, post], new THREE.Box3().setFromObject(model))
+    rigs.push(rig)
+
+    const upper = rig.tracers.filter(({ region }) => region === 'upper')
+    upper.forEach(({ curve }) => {
+      const onBody = curve.points.filter((point) => Math.abs(point.x) < 1.9)
+      onBody.forEach((point) => expect(point.y).toBeGreaterThanOrEqual(0.6))
+      const steps = curve.points.slice(1).map((point, index) => Math.abs(point.y - curve.points[index].y))
+      expect(Math.max(...steps)).toBeLessThan(0.3)
+    })
+    body.geometry.dispose()
+    post.geometry.dispose()
+  })
+
+  it('lifts the upper wake behind the last surface instead of dropping it', () => {
+    const rig = createFlow()
+    rig.tracers.filter(({ region }) => region === 'upper').forEach(({ curve }) => {
+      const points = curve.points
+      const outlet = points[points.length - 1]
+      const trailingEdge = points.find((point) => point.x > 2.05) as THREE.Vector3
+      expect(outlet.y).toBeGreaterThan(trailingEdge.y)
+    })
   })
 
   it('increases smoke strength and tracer travel with speed', () => {
@@ -48,6 +81,7 @@ describe('surface flow', () => {
 
     updateSurfaceFlow(rig, 2, 300, false)
     expect(rig.materials[0].uniforms.uFlowStrength.value).toBeCloseTo(1)
+    expect(rig.tracers[0].pulse.material.uniforms.uTravel.value).toBeGreaterThan(0)
     expect(rig.materials[0].uniforms.uSpeed.value).toBeGreaterThan(1)
     expect(rig.tracers[0].marker.position.distanceTo(slowPosition)).toBeGreaterThan(0.01)
     expect(rig.tracers.map(({ curve }) => curve.points.map((point) => point.toArray())))
@@ -66,6 +100,7 @@ describe('surface flow', () => {
     expect(rig.materials[0].uniforms.uTransition.value).toBeCloseTo(0.35)
     expect(tracerMaterial.opacity).toBeCloseTo(0.58 * 0.35)
     expect(markerMaterial.opacity).toBeCloseTo(0.9 * 0.35)
+    expect(rig.pulseMaterials[0].uniforms.uTransition.value).toBeCloseTo(0.35)
   })
 
   it('resamples the path geometry after an aerodynamic surface moves', () => {
@@ -158,5 +193,6 @@ describe('surface flow', () => {
     expect(rig.materials[0].uniforms.uColor.value.getHex()).toBe(0x8d91b8)
     expect(Math.max(...(field.geometry.getAttribute('flowDelta') as THREE.BufferAttribute).array)).toBe(0)
     expect(tracer.path.material.opacity).toBeCloseTo(tracer.pathBaseOpacity * 0.42)
+    expect(tracer.pulse.material.uniforms.uColor.value.getHex()).toBe(0x8d91b8)
   })
 })
