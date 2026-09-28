@@ -31,6 +31,7 @@ import {
   applyComponentPose,
   resolveCarPose,
   resolveComponentPose,
+  resolveReferenceComponentPose,
   resolveReferenceFlowKey,
   type CarPose,
   type ComponentNodes,
@@ -714,7 +715,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
         retiringSurfaceFlow = null
       }
       disposeComponentOverlay()
-      const currentPose = resolveComponentPose(current.params, current.result)
+      const currentPose = resolveReferenceComponentPose(current.params, current.result)
       if (highDetailComponentRigAvailable) applyComponentPose(highDetailComponentNodes, currentPose)
       carSystem.updateMatrixWorld(true)
       // Sample with the wheels at rest: spinning tread would otherwise add
@@ -773,7 +774,7 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       if (focus && comparison && highDetailComponentRigAvailable) {
         const overlay = createComponentChangeOverlay(
           highDetailComponentNodes,
-          resolveComponentPose(comparison.params, comparison.result),
+          resolveReferenceComponentPose(comparison.params, comparison.result),
           currentPose,
         )
         if (overlay) componentOverlay = { overlay, holdUntil, fadeSeconds: baselineFadeSeconds }
@@ -915,7 +916,10 @@ export const WindTunnelView = ({ car, params, result, onReferenceCapabilityChang
       const current = latestRef.current
       const speed = current.params.run.speedKph
       const carPose = resolveCarPose(current.params)
-      const componentPose = resolveComponentPose(current.params, current.result)
+      const referenceComponentsActive = modelModeRef.current === 'reference' && highDetailComponentRigAvailable
+      const componentPose = referenceComponentsActive
+        ? resolveReferenceComponentPose(current.params, current.result)
+        : resolveComponentPose(current.params, current.result)
 
       applyAnalysisChassisPose(rig, carPose)
       const activeComponentNodes = resolveActiveComponentNodes(

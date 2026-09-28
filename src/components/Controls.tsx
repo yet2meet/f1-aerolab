@@ -326,7 +326,9 @@ export const Controls = ({
             unit="DEG"
           onChange={(value) => onGarageChange('frontWingAngleDeg', value)}
           disabled={referenceGeometryLocked}
-          hint={referenceGeometryLocked ? '当前参考模型没有已验证的前翼节点' : undefined}
+          hint={referenceGeometryLocked
+            ? '当前参考模型没有已验证的前翼节点'
+            : referenceMode ? '参考模型：主翼固定于鼻锥，攻角通过前翼襟翼调整' : undefined}
           />
         </div>
         <RangeControl

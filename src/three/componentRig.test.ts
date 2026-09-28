@@ -11,7 +11,9 @@ import {
   type SemanticComponentNodes,
   resolveCarPose,
   resolveComponentPose,
+  resolveReferenceComponentPose,
   resolveReferenceFlowKey,
+  REFERENCE_FRONT_ANGLE_FLAP_GAIN,
 } from './componentRig'
 
 const setup = () => {
@@ -108,6 +110,28 @@ describe('explicit aerodynamic component rig', () => {
 
     expect(THREE.MathUtils.radToDeg(loaded.rearWingFlapRotationZ - neutral.rearWingFlapRotationZ)).toBeCloseTo(44 * 0.12, 6)
     expect(loaded.frontWingFlapRotationZ).toBe(neutral.frontWingFlapRotationZ)
+  })
+
+  it('turns the reference front flap, not the mainplane, for the front-wing angle', () => {
+    const { params, result } = setup()
+    params.garage.frontWingAngleDeg = 12
+    const neutral = resolveReferenceComponentPose(params, result)
+    params.garage.frontWingAngleDeg = 25
+    const steep = resolveReferenceComponentPose(params, result)
+
+    expect(steep.frontWingMainplaneRotationZ).toBeCloseTo(neutral.frontWingMainplaneRotationZ, 10)
+    expect(THREE.MathUtils.radToDeg(steep.frontWingFlapRotationZ - neutral.frontWingFlapRotationZ))
+      .toBeCloseTo(13 * REFERENCE_FRONT_ANGLE_FLAP_GAIN, 6)
+    const analysis = resolveComponentPose(params, result)
+    expect(steep.rearWingFlapRotationZ).toBe(analysis.rearWingFlapRotationZ)
+  })
+
+  it('keeps the reference mainplane active-aero offset', () => {
+    const { params, result } = setup()
+    params.ruleset = '2026'
+    params.driver.activeAeroMode = 'straight'
+    const pose = resolveReferenceComponentPose(params, { ...result, ruleset: '2026', activeAeroMode: 'straight' })
+    expect(THREE.MathUtils.radToDeg(pose.frontWingMainplaneRotationZ)).toBeCloseTo(-4, 6)
   })
 
   it('keeps chassis pose independent from every aero component input', () => {

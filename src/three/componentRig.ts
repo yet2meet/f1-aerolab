@@ -116,6 +116,30 @@ export const resolveComponentPose = (
   }
 }
 
+/** Degrees of reference-model flap rotation per degree of front-wing angle setting. */
+export const REFERENCE_FRONT_ANGLE_FLAP_GAIN = 0.5
+
+/**
+ * Pose for the licensed reference asset. On a real car the front mainplane is
+ * fixed to the nose and wing-angle changes are made on the flaps, and on this
+ * asset the flap also covers the mainplane from above. So the front-wing angle
+ * setting turns the flap about its own hinge (adding to the camber setting)
+ * while the mainplane keeps only its active-aero offset.
+ */
+export const resolveReferenceComponentPose = (
+  params: SimulationParams,
+  result: Pick<AeroResult, 'ruleset' | 'activeAeroMode' | 'drsActive'>,
+): ComponentPose => {
+  const pose = resolveComponentPose(params, result)
+  const angleOffsetRad = degToRad((params.garage.frontWingAngleDeg - 12) * 0.6)
+  return {
+    ...pose,
+    frontWingMainplaneRotationZ: pose.frontWingMainplaneRotationZ - angleOffsetRad,
+    frontWingFlapRotationZ: pose.frontWingFlapRotationZ
+      + degToRad((params.garage.frontWingAngleDeg - 12) * REFERENCE_FRONT_ANGLE_FLAP_GAIN),
+  }
+}
+
 export const applyComponentPose = (
   nodes: ComponentNodes | SemanticComponentNodes,
   pose: ComponentPose,
